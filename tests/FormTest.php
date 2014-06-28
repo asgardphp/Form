@@ -3,12 +3,6 @@ namespace Asgard\Form\Tests;
 
 class FormTest extends \PHPUnit_Framework_TestCase {
 	protected static $app;
-	protected static $config = [
-		'database' => 'asgard',
-		'user' => 'root',
-		'password' => '',
-		'host' => 'localhost'
-	];
 
 	#for entities
 	public static function setUpBeforeClass() {
@@ -21,7 +15,6 @@ class FormTest extends \PHPUnit_Framework_TestCase {
 		$app['cache'] = new \Asgard\Cache\NullCache;
 		$app['translator'] = new \Symfony\Component\Translation\Translator('en');
 		$app['entitiesmanager'] = new \Asgard\Entity\EntitiesManager($app);
-		$app['db'] = new \Asgard\Db\DB(static::$config);
 		\Asgard\Entity\Entity::setApp($app);
 		static::$app = $app;
 	}
@@ -41,7 +34,7 @@ class FormTest extends \PHPUnit_Framework_TestCase {
 		});
 		$form = new \Asgard\Form\Form;
 		$form->setRequest($request);
-		$form->setHooks(static::$app['hooks']);
+		// $form->setHooks(static::$app['hooks']);
 		$form->setTranslator(static::$app['translator']);
 		$form['group'] = $group;
 
@@ -60,7 +53,7 @@ class FormTest extends \PHPUnit_Framework_TestCase {
 			return $field->def();
 		});
 
-		$this->assertCount(5, $group->getFields());
+		$this->assertCount(5, $group->fields());
 
 		#pour l'affichage : une simple boucle sur toutes les entrees du groupe, et affichage avec la fonction def() qui utilise le default render
 		foreach($group as $field)
@@ -71,14 +64,11 @@ class FormTest extends \PHPUnit_Framework_TestCase {
 		$this->assertEquals('<input type="text" name="group[]" value="" id="group-">', $template);
 
 		#Form
-		$form = new \Asgard\Form\Form('test', [], [
-			'title' => new \Asgard\Form\Fields\TextField
-		], $request);
-		$form->setHooks(static::$app['hooks']);
+		$form = new \Asgard\Form\Form('test', [], $request);
+		$form['title'] = new \Asgard\Form\Fields\TextField;
 		$form->setTranslator(static::$app['translator']);
-		$childForm = new \Asgard\Form\Form('test', [], [
-			'content' => new \Asgard\Form\Fields\TextField(['validation' => 'required'])
-		]);
+		$childForm = new \Asgard\Form\Form('test', []);
+		$childForm['content'] = new \Asgard\Form\Fields\TextField(['validation' => 'required']);
 		$form['childForm'] = $childForm;
 
 		$request->server->set('CONTENT_LENGTH', (int)ini_get('post_max_size')*1024*1024+1);
@@ -93,10 +83,10 @@ class FormTest extends \PHPUnit_Framework_TestCase {
 			]
 		]);
 		$form->fetch();
-		$this->assertTrue($form->isSent());
+		$this->assertTrue($form->sent());
 
 		$form->setMethod('get');
-		$this->assertFalse($form->isSent());
+		$this->assertFalse($form->sent());
 
 		$request->setMethod('get')->get->set('test', [
 			'title' => 'abc',
@@ -105,31 +95,23 @@ class FormTest extends \PHPUnit_Framework_TestCase {
 			]
 		]);
 		$form->fetch();
-		$this->assertTrue($form->isSent());
+		$this->assertTrue($form->sent());
 
 		$request->get->delete('test');
-		$this->assertFalse($form->isSent());
+		$this->assertFalse($form->sent());
 		$this->assertFalse($form->isValid());
 
-		ob_start();
-		$form->open([
+		$this->assertEquals('<form action="www.example.net" method="get" class="test">'."\n", $form->open([
 			'action' => 'www.example.net',
 			'attrs' => ['class'=>'test']
-		]);
-		$this->assertEquals('<form action="www.example.net" method="get" class="test">'."\n", ob_get_clean());
+		]));
 
-		ob_start();
-		$form->close();
-		$this->assertRegExp('/<\/form>/', ob_get_clean());
+		$this->assertRegExp('/<\/form>/', $form->close());
 		$form->csrf();
-		ob_start();
-		$form->close();
-		$this->assertRegExp('/<input type="hidden" name="test\[_csrf_token\]" value="[a-zA-Z0-9]+" id="test-_csrf_token"><\/form>/', ob_get_clean());
-		$form->noCSRF();
+		$this->assertRegExp('/<input type="hidden" name="test\[_csrf_token\]" value="[a-zA-Z0-9]+" id="test-_csrf_token"><\/form>/', $form->close());
+		$form->csrf(false);
 
-		ob_start();
-		$form->submit('Send');
-		$this->assertEquals('<input type="submit" value="Send">', ob_get_clean());
+		$this->assertEquals('<input type="submit" value="Send">', $form->submit('Send'));
 
 		$form->setMethod('post');
 		$request->setMethod('post')->post->set('test', [
@@ -165,7 +147,7 @@ class FormTest extends \PHPUnit_Framework_TestCase {
 			]
 		], $form->getGeneralErrors());
 
-		$form->noCSRF();
+		$form->csrf(false);
 
 		$request->post->set('test', [
 			'title' => 'abc',
@@ -176,20 +158,11 @@ class FormTest extends \PHPUnit_Framework_TestCase {
 		$form->fetch();
 		$this->assertTrue($form->isValid());
 
-		#deprecated
-		// #Set render callback
-		// $this->assertEquals('<input type="text" name="test[title]" value="abc" id="test-title">', $form['title']->def()->__toString());
-		// $form->setRenderCallback('text', function($field, $options) {
-		// 	$options['attrs']['class'] = 'a b c';
-		// 	return $field->getTopForm()->getWidget('text', $field->getName(), $field->getValue(), $options);
-		// });
-		// $this->assertEquals('<input type="text" name="test[title]" value="abc" id="test-title" class="a b c">', $form['title']->def()->__toString());
-
-		$this->assertCount(2, $form->getFields());
+		$this->assertCount(2, $form->fields());
 		$this->assertEquals(2, $form->size());
 
-		$this->assertEquals('test', $form->getName());
-		$this->assertEquals('childForm', $form['childForm']->getName());
+		$this->assertEquals('test', $form->name());
+		$this->assertEquals('childForm', $form['childForm']->name());
 
 		$form->reset();
 		$this->assertEquals([
@@ -197,7 +170,7 @@ class FormTest extends \PHPUnit_Framework_TestCase {
 			'childForm' => [
 				'content' => ''
 			]
-		], $form->getData());
+		], $form->data());
 
 		$this->assertFalse($form->hasFile());
 		$form['childForm']['file'] = new \Asgard\Form\Fields\FileField;
@@ -216,12 +189,8 @@ class FormTest extends \PHPUnit_Framework_TestCase {
 	}
 
 	public function testEntityForm() {
-		$mysql = new \Asgard\Db\MySQL(static::$config);
-		$mysql->import(__DIR__.'/formentities.sql');
-
 		$user = new Entities\User;
 		$form = new \Asgard\Form\EntityForm($user, [], null);
-		$form->setHooks(static::$app['hooks']);
 		$form->setTranslator(static::$app['translator']);
 		$request = new \Asgard\Http\Request;
 		$request->setMethod('post')->post->set('user', ['name' => 'Bob']);
@@ -261,26 +230,26 @@ class FormTest extends \PHPUnit_Framework_TestCase {
 		/*#to render a field with the group renderer function
 		render
 		#get all the group fields
-		getFields
+		fields
 		#if it has a field
 		has / __isset
 		#returns the list of parents
 		getParents
 		#returns the group name
-		getName
+		name
 		#check if the group form was sent
-		isSent
+		sent
 		#size of fields
 		size
 		addFields
 		addField
-		setDad
+		setParent
 		setFields
 		setName
 		#reset data and files
 		reset
-		setData
-		getData
+		setdata
+		data
 		#check if the group as file field
 		hasFile
 		#get the errors
@@ -296,10 +265,10 @@ class FormTest extends \PHPUnit_Framework_TestCase {
 		trigger*/
 	#Form (voir Group)
 		/*__construct
-		k-setDad
+		k-setParent
 		k-uploadSuccess
 		k-setMethod
-		k-isSent
+		k-sent
 		k-open
 		k-close
 		k-submit
